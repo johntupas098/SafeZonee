@@ -24,7 +24,7 @@ class _IncidentScreenState extends State<IncidentScreen> {
   final List<Map<String, dynamic>> categories = [
     {'name': 'Police', 'icon': Icons.local_police, 'color': Colors.blue},
     {'name': 'Fire', 'icon': Icons.local_fire_department, 'color': Colors.orange},
-    {'name': 'Medical', 'icon': Icons.local_hospital, 'color': Colors.red},
+    {'name': 'Medic', 'icon': Icons.local_hospital, 'color': Colors.red},
   ];
 
   Future<Position> _determinePosition() async {

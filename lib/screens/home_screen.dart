@@ -8,8 +8,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:audio_session/audio_session.dart';
 
-const String kAdminPeerId = 'admin-dashboard-xyz';
-
 class HomeScreen extends StatefulWidget {
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -31,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isCalling = false;
   bool _isSpeakerOn = false;
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  String? _connectedDispatcherId;
 
   final List<Map<String, dynamic>> staticResponders = [
     {"name": "PS1 City Proper", "lat": 10.701501994092405, "lng": 122.56369039944839, "type": "police"},
@@ -172,22 +171,71 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Locating available admin...'), backgroundColor: Colors.blue),
+      );
+
+      final admin = await supabase
+          .from('admins')
+          .select('peer_id')
+          .eq('call_status', 'available')
+          .order('last_seen', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (admin == null) {
+        await supabase.from('emergency_alerts').insert({
+          'latitude': _currentLocation.latitude,
+          'longitude': _currentLocation.longitude,
+          'status': 'pending',
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Voice lines busy. SOS coordinates successfully broadcasted to map!'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+
+      final String targetAdminId = admin['peer_id'] as String;
+      _connectedDispatcherId = targetAdminId;
+
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) return;
+
       await supabase.from('emergency_alerts').insert({
         'latitude': _currentLocation.latitude,
         'longitude': _currentLocation.longitude,
         'status': 'pending',
       });
 
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) return;
+      await supabase
+          .from('admins')
+          .update({'call_status': 'busy'})
+          .eq('peer_id', targetAdminId);
 
       _localStream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
         'video': false,
       });
 
-      final call = _peer.call(kAdminPeerId, _localStream!);
+      final call = _peer.call(targetAdminId, _localStream!);
       _activeCall = call;
+
+// ADD THESE LISTENERS IMMEDIATELY
+      call.on('error').listen((err) {
+        debugPrint("CRITICAL: Call Error: $err");
+      });
+
+      call.on('open').listen((_) {
+        debugPrint("SUCCESS: Call channel opened!");
+      });
 
       setState(() => _isCalling = true);
 
@@ -197,17 +245,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
       call.on('close').listen((_) => _hangUp());
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('SOS Alert Sent. Calling Admin...'), backgroundColor: Colors.orange),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('SOS Alert Sent. Connecting to Dispatch...'), backgroundColor: Colors.green),
+        );
+      }
 
     } catch (e) {
-      debugPrint('Call error: $e');
+      debugPrint('Call processing error: $e');
       _hangUp();
     }
   }
 
-  void _hangUp() {
+  void _hangUp() async {
+    if (_connectedDispatcherId != null) {
+      try {
+        await supabase
+            .from('admins')
+            .update({'call_status': 'available'})
+            .eq('peer_id', _connectedDispatcherId!);
+      } catch (e) {
+        debugPrint("Error resetting admin status: $e");
+      }
+    }
+
     _activeCall?.close();
     _activeCall = null;
     _localStream?.getTracks().forEach((track) => track.stop());
@@ -219,6 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isCalling = false;
         _isSpeakerOn = false;
+        _connectedDispatcherId = null;
       });
     }
   }
