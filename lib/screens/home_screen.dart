@@ -228,7 +228,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final call = _peer.call(targetAdminId, _localStream!);
       _activeCall = call;
 
-// ADD THESE LISTENERS IMMEDIATELY
       call.on('error').listen((err) {
         debugPrint("CRITICAL: Call Error: $err");
       });

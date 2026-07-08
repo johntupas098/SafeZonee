@@ -12,6 +12,7 @@ class IncidentScreen extends StatefulWidget {
 
 class _IncidentScreenState extends State<IncidentScreen> {
   final _descriptionController = TextEditingController();
+  final _phoneController = TextEditingController();
   String _selectedCategory = 'Police';
   File? _imageFile;
   bool _isUploading = false;
@@ -119,9 +120,23 @@ class _IncidentScreenState extends State<IncidentScreen> {
   }
 
   Future<void> _submitIncident() async {
-    if (_descriptionController.text.trim().isEmpty) {
+    final phone = _phoneController.text.trim();
+    final description = _descriptionController.text.trim();
+
+    if (description.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please describe the emergency')),
+      );
+      return;
+    }
+
+    final phPhoneRegex = RegExp(r'^(09|\+639)\d{9}$');
+    if (phone.isEmpty || !phPhoneRegex.hasMatch(phone)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid PH number (e.g., 09123456789)'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
@@ -147,11 +162,13 @@ class _IncidentScreenState extends State<IncidentScreen> {
 
       final data = await supabase.from('incidents').insert({
         'category': _selectedCategory,
-        'description': _descriptionController.text.trim(),
+        'description': description,
+        'phone_number': phone,
         'image_url': imageUrl,
         'latitude': position.latitude,
         'longitude': position.longitude,
         'created_at': DateTime.now().toIso8601String(),
+        'status': 'pending',
       }).select().single();
 
       _currentIncidentId = data['id'].toString();
@@ -164,6 +181,12 @@ class _IncidentScreenState extends State<IncidentScreen> {
             backgroundColor: Colors.green,
           ),
         );
+
+        _descriptionController.clear();
+        _phoneController.clear();
+        setState(() {
+          _imageFile = null;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -218,6 +241,17 @@ class _IncidentScreenState extends State<IncidentScreen> {
                 );
               }).toList(),
               onChanged: (value) => setState(() => _selectedCategory = value!),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: 'Your Contact Number',
+                hintText: 'e.g., 09123456789',
+                prefixIcon: const Icon(Icons.phone),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+              ),
             ),
             const SizedBox(height: 20),
             TextField(
@@ -284,6 +318,7 @@ class _IncidentScreenState extends State<IncidentScreen> {
   void dispose() {
     _positionStreamSubscription?.cancel();
     _descriptionController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 }
