@@ -9,21 +9,29 @@ class AlertsScreen extends StatefulWidget {
 class _AlertsScreenState extends State<AlertsScreen> {
   final _supabase = Supabase.instance.client;
 
-  Color _getAlertColor(String type) {
-    switch (type.toLowerCase()) {
-      case 'fire': return Colors.red;
-      case 'car collision': return Colors.orangeAccent;
-      case 'road closed': return Colors.amber;
-      default: return Colors.blueGrey;
+  Color _getAlertColor(String category) {
+    switch (category.toLowerCase()) {
+      case 'fire':
+        return Colors.orange;
+      case 'medic':
+        return Colors.red;
+      case 'police':
+        return Colors.blue;
+      default:
+        return Colors.blueGrey;
     }
   }
 
-  IconData _getLocalIcon(String type) {
-    switch (type.toLowerCase()) {
-      case 'fire': return Icons.local_fire_department;
-      case 'car collision': return Icons.directions_car;
-      case 'road closed': return Icons.construction;
-      default: return Icons.warning;
+  IconData _getLocalIcon(String category) {
+    switch (category.toLowerCase()) {
+      case 'fire':
+        return Icons.local_fire_department;
+      case 'medic':
+        return Icons.local_hospital;
+      case 'police':
+        return Icons.local_police;
+      default:
+        return Icons.warning;
     }
   }
 
@@ -36,9 +44,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _supabase
-            .from('alerts')
+            .from('incidents')
             .stream(primaryKey: ['id'])
-            .eq('status', 'ongoing')
             .order('created_at', ascending: false),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -51,7 +58,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
           }
 
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final alerts = snapshot.data!;
+          final incidents = snapshot.data!;
 
           return Column(
             children: [
@@ -70,20 +77,23 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Ongoing Hazards', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
-                    Text('${alerts.length} active incidents', style: const TextStyle(color: Colors.white70)),
+                    Text('${incidents.length} active incidents', style: const TextStyle(color: Colors.white70)),
                   ],
                 ),
               ),
 
               Expanded(
-                child: alerts.isEmpty
+                child: incidents.isEmpty
                     ? const Center(child: Text("All clear! No current hazards."))
                     : ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: alerts.length,
+                  itemCount: incidents.length,
                   itemBuilder: (context, index) {
-                    final alert = alerts[index];
-                    final type = alert['type'] as String? ?? '';
+                    final incident = incidents[index];
+
+                    final category = incident['category'] as String? ?? 'General';
+                    final description = incident['description'] as String? ?? 'No description provided.';
+                    final status = incident['status'] as String? ?? 'pending';
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -92,19 +102,49 @@ class _AlertsScreenState extends State<AlertsScreen> {
                       child: Container(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [_getAlertColor(type).withOpacity(0.2), Colors.white],
+                            colors: [_getAlertColor(category).withOpacity(0.15), Colors.white],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
                           ),
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: _getAlertColor(type),
-                            child: Icon(_getLocalIcon(type), color: Colors.white),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: _getAlertColor(category),
+                              child: Icon(_getLocalIcon(category), color: Colors.white),
+                            ),
+                            title: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                    category,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: status.toLowerCase() == 'pending' ? Colors.amber[800] : Colors.green[700],
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    status.toUpperCase(),
+                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Text(
+                                description,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: Colors.grey[800]),
+                              ),
+                            ),
                           ),
-                          title: Text(alert['title'] ?? 'Incident', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text(type),
                         ),
                       ),
                     );
