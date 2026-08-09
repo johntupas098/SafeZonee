@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class IncidentScreen extends StatefulWidget {
   @override
@@ -23,10 +24,26 @@ class _IncidentScreenState extends State<IncidentScreen> {
   final supabase = Supabase.instance.client;
 
   final List<Map<String, dynamic>> categories = [
-    {'name': 'Police', 'icon': Icons.local_police, 'color': Colors.blue},
-    {'name': 'Fire', 'icon': Icons.local_fire_department, 'color': Colors.orange},
+    {'name': 'Police', 'icon': Icons.emergency, 'color': Colors.blue},
+    {'name': 'Fire', 'icon': Icons.sports_motorsports, 'color': Colors.orange},
     {'name': 'Medic', 'icon': Icons.local_hospital, 'color': Colors.red},
   ];
+
+  Future<String?> _getDeviceId() async {
+    var deviceInfo = DeviceInfoPlugin();
+    try {
+      if (Platform.isIOS) {
+        var iosDeviceInfo = await deviceInfo.iosInfo;
+        return iosDeviceInfo.identifierForVendor;
+      } else if (Platform.isAndroid) {
+        var androidDeviceInfo = await deviceInfo.androidInfo;
+        return androidDeviceInfo.id;
+      }
+    } catch (e) {
+      debugPrint('Failed to get device ID: $e');
+    }
+    return null;
+  }
 
   Future<Position> _determinePosition() async {
     bool serviceEnabled;
@@ -144,7 +161,13 @@ class _IncidentScreenState extends State<IncidentScreen> {
     setState(() => _isUploading = true);
 
     try {
-      Position position = await _determinePosition();
+      final results = await Future.wait([
+        _determinePosition(),
+        _getDeviceId(),
+      ]);
+
+      Position position = results[0] as Position;
+      String? deviceId = results[1] as String?;
       String? imageUrl;
 
       if (_imageFile != null) {
@@ -167,6 +190,7 @@ class _IncidentScreenState extends State<IncidentScreen> {
         'image_url': imageUrl,
         'latitude': position.latitude,
         'longitude': position.longitude,
+        'device_id': deviceId,
         'created_at': DateTime.now().toIso8601String(),
         'status': 'pending',
       }).select().single();

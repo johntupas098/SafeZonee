@@ -39,7 +39,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🚨 Traffic & Safety Alerts'),
+        title: const Text('🚨 Safety Alerts', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.red[900],
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
@@ -58,7 +58,10 @@ class _AlertsScreenState extends State<AlertsScreen> {
           }
 
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final incidents = snapshot.data!;
+
+          final incidents = snapshot.data!
+              .where((incident) => (incident['status'] as String? ?? '').toLowerCase() != 'cancelled')
+              .toList();
 
           return Column(
             children: [

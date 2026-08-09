@@ -29,7 +29,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isCalling = false;
   bool _isSpeakerOn = false;
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  String? _connectedDispatcherId;
+  String? _myPeerId;
+  String? _currentAlertId;
 
   final List<Map<String, dynamic>> staticResponders = [
     {"name": "PS1 City Proper", "lat": 10.701501994092405, "lng": 122.56369039944839, "type": "police"},
@@ -77,7 +78,40 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initPeer() async {
     await _remoteRenderer.initialize();
     _peer = Peer();
+
+    _peer.on('open').listen((id) {
+      if (mounted) {
+        setState(() => _myPeerId = id);
+      }
+      debugPrint("My Peer ID is: $_myPeerId");
+    });
+
     _peer.on('error').listen((error) => debugPrint("Peer error: $error"));
+
+    _peer.on<MediaConnection>('call').listen((call) async {
+      _activeCall = call;
+
+      _localStream ??= await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': false,
+      });
+
+      call.answer(_localStream!);
+
+      if (mounted) {
+        setState(() => _isCalling = true);
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Call Connected to Dispatch'), backgroundColor: Colors.green),
+        );
+      }
+
+      call.on<MediaStream>('stream').listen((remoteStream) {
+        _remoteRenderer.srcObject = remoteStream;
+      });
+
+      call.on('close').listen((_) => _hangUp());
+    });
   }
 
   Future<void> _toggleSpeaker() async {
@@ -156,6 +190,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
   }
 
+  Widget _getResponderIconUI(String type) {
+    if (type == 'police') {
+      return const Icon(Icons.emergency, color: Colors.blue, size: 20);
+    } else if (type == 'fire') {
+      return const Icon(Icons.sports_motorsports, color: Colors.orange, size: 20);
+    } else {
+      return const Icon(Icons.local_hospital, color: Colors.red, size: 20);
+    }
+  }
+
   void _goToResponder(double lat, double lng) {
     _mapController?.animateCamera(
       CameraUpdate.newCameraPosition(
@@ -170,86 +214,37 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    try {
+    if (_myPeerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Locating available admin...'), backgroundColor: Colors.blue),
+        const SnackBar(content: Text('Connecting to server, please wait...'), backgroundColor: Colors.orange),
       );
+      return;
+    }
 
-      final admin = await supabase
-          .from('admins')
-          .select('peer_id')
-          .eq('call_status', 'available')
-          .order('last_seen', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (admin == null) {
-        await supabase.from('emergency_alerts').insert({
-          'latitude': _currentLocation.latitude,
-          'longitude': _currentLocation.longitude,
-          'status': 'pending',
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Voice lines busy. SOS coordinates successfully broadcasted to map!'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 5),
-            ),
-          );
-        }
-        return;
-      }
-
-      final String targetAdminId = admin['peer_id'] as String;
-      _connectedDispatcherId = targetAdminId;
-
+    try {
       final status = await Permission.microphone.request();
       if (!status.isGranted) return;
 
-      await supabase.from('emergency_alerts').insert({
-        'latitude': _currentLocation.latitude,
-        'longitude': _currentLocation.longitude,
-        'status': 'pending',
-      });
-
-      await supabase
-          .from('admins')
-          .update({'call_status': 'busy'})
-          .eq('peer_id', targetAdminId);
+      if (mounted) {
+        setState(() => _isCalling = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Broadcasting SOS to all dispatchers...'), backgroundColor: Colors.blue),
+        );
+      }
 
       _localStream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
         'video': false,
       });
 
-      final call = _peer.call(targetAdminId, _localStream!);
-      _activeCall = call;
+      final response = await supabase.from('emergency_alerts').insert({
+        'latitude': _currentLocation.latitude,
+        'longitude': _currentLocation.longitude,
+        'status': 'pending',
+        'caller_peer_id': _myPeerId,
+      }).select().single();
 
-      call.on('error').listen((err) {
-        debugPrint("CRITICAL: Call Error: $err");
-      });
-
-      call.on('open').listen((_) {
-        debugPrint("SUCCESS: Call channel opened!");
-      });
-
-      setState(() => _isCalling = true);
-
-      call.on<MediaStream>('stream').listen((remoteStream) {
-        _remoteRenderer.srcObject = remoteStream;
-      });
-
-      call.on('close').listen((_) => _hangUp());
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('SOS Alert Sent. Connecting to Dispatch...'), backgroundColor: Colors.green),
-        );
-      }
+      _currentAlertId = response['id'].toString();
 
     } catch (e) {
       debugPrint('Call processing error: $e');
@@ -258,14 +253,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _hangUp() async {
-    if (_connectedDispatcherId != null) {
+    if (_currentAlertId != null) {
       try {
         await supabase
-            .from('admins')
-            .update({'call_status': 'available'})
-            .eq('peer_id', _connectedDispatcherId!);
+            .from('emergency_alerts')
+            .update({'status': 'cancelled'})
+            .eq('id', _currentAlertId!);
       } catch (e) {
-        debugPrint("Error resetting admin status: $e");
+        debugPrint("Error updating alert status: $e");
       }
     }
 
@@ -280,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isCalling = false;
         _isSpeakerOn = false;
-        _connectedDispatcherId = null;
+        _currentAlertId = null;
       });
     }
   }
@@ -354,7 +349,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       items: staticResponders.map((responder) {
                         return DropdownMenuItem<Map<String, dynamic>>(
                           value: responder,
-                          child: Text(responder['name']),
+                          child: Row(
+                            children: [
+                              _getResponderIconUI(responder['type']),
+                              const SizedBox(width: 10),
+                              Text(responder['name']),
+                            ],
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -444,8 +445,14 @@ class _HomeScreenState extends State<HomeScreen> {
           shape: const CircleBorder(),
           elevation: 10,
           child: _isCalling
-              ? const Icon(Icons.call_end, color: Colors.white, size: 30)
-              : const Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
+              ? const Icon(Icons.call_end, color: Colors.white, size: 32)
+              : const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.phone_in_talk, color: Colors.white, size: 26),
+              Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+            ],
+          ),
         ),
       ),
     );
