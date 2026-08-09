@@ -13,7 +13,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
     switch (category.toLowerCase()) {
       case 'fire':
         return Colors.orange;
-      case 'medic':
+      case 'medical':
         return Colors.red;
       case 'police':
         return Colors.blue;
@@ -24,11 +24,11 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   IconData _getLocalIcon(String category) {
     switch (category.toLowerCase()) {
-      case 'Fire':
+      case 'fire':
         return Icons.fire_truck;
-      case 'Medical':
+      case 'medical':
         return Icons.local_hospital;
-      case 'Police':
+      case 'police':
         return Icons.local_police_outlined;
       default:
         return Icons.warning;
