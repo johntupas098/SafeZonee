@@ -7,6 +7,8 @@ import 'package:peerdart/peerdart.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -31,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   String? _myPeerId;
   String? _currentAlertId;
+  String? _deviceId;
 
   final List<Map<String, dynamic>> staticResponders = [
     {"name": "PS1 City Proper", "lat": 10.701501994092405, "lng": 122.56369039944839, "type": "police", "phone": "0998-598-6242"},
@@ -69,10 +72,23 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _initDeviceId();
     _getCurrentInitialLocation();
     _startLiveTracking();
     _subscribeToResponders();
     _initPeer();
+  }
+
+  Future<void> _initDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? storedId = prefs.getString('device_unique_id');
+    if (storedId == null || storedId.isEmpty) {
+      storedId = const Uuid().v4();
+      await prefs.setString('device_unique_id', storedId);
+    }
+    setState(() {
+      _deviceId = storedId;
+    });
   }
 
   Future<void> _initPeer() async {
@@ -242,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'longitude': _currentLocation.longitude,
         'status': 'pending',
         'caller_peer_id': _myPeerId,
+        'device_id': _deviceId,
       }).select().single();
 
       _currentAlertId = response['id'].toString();
