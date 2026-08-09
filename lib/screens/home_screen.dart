@@ -211,7 +211,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (type == 'police') {
       return const Icon(Icons.emergency, color: Colors.blue, size: 20);
     } else if (type == 'fire') {
-      return const Icon(Icons.sports_motorsports, color: Colors.orange, size: 20);
+      return const Icon(Icons.fire_truck, color: Colors.orange, size: 20);
     } else {
       return const Icon(Icons.local_hospital, color: Colors.red, size: 20);
     }
