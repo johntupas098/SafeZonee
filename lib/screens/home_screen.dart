@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -7,8 +8,7 @@ import 'package:peerdart/peerdart.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -22,74 +22,80 @@ class _HomeScreenState extends State<HomeScreen> {
   LatLng _currentLocation = const LatLng(10.7202, 122.5621);
   StreamSubscription<Position>? _positionStream;
   StreamSubscription? _responderSubscription;
-  StreamSubscription? _activeAlertSubscription; // Listens for admin status updates
 
   Map<MarkerId, Marker> _liveResponders = {};
 
   late Peer _peer;
   MediaStream? _localStream;
+  MediaStream? _remoteStream;
   MediaConnection? _activeCall;
   bool _isCalling = false;
   bool _isSpeakerOn = false;
+  bool _isEndingCall = false;
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   String? _myPeerId;
-  String? _currentAlertId;
   String? _deviceId;
+  String? _currentAlertId;
+  StreamSubscription? _currentAlertStatusSubscription;
+  RealtimeChannel? _callEndedChannel;
 
   final List<Map<String, dynamic>> staticResponders = [
-    {"name": "PS1 City Proper", "lat": 10.701501994092405, "lng": 122.56369039944839, "type": "police", "phone": "0998-598-6242"},
-    {"name": "PS2 La Paz", "lat": 10.70552222109631, "lng": 122.56549995693831, "type": "police", "phone": "0998-598-6244"},
-    {"name": "PS3 Jaro", "lat": 10.71560226623802, "lng": 122.56266469623272, "type": "police", "phone": "0998-598-6246"},
-    {"name": "Molo Police Station", "lat": 10.698346304433658, "lng": 122.55105476464729, "type": "police", "phone": "0998-598-6248"},
-    {"name": "PS5 Mandurriao", "lat": 10.71683400704982, "lng": 122.53648059623264, "type": "police", "phone": "0998-598-6250"},
-    {"name": "Arevalo Police Station", "lat": 10.68890021276814, "lng": 122.51886825833218, "type": "police", "phone": "0998-598-6252"},
-    {"name": "PS7 Lapuz", "lat": 10.693878433584727, "lng": 122.55874469935698, "type": "police", "phone": "0947-996-6568"},
-    {"name": "Sambag Police Assistant", "lat": 10.742333401995415, "lng": 122.5409438842518, "type": "police", "phone": "0908-689-6098"},
-    {"name": "Ungka Police Station", "lat": 10.747512542219782, "lng": 122.54008363707585, "type": "police", "phone": "0908-689-6098"},
-    {"name": "ICPO Police Station 9", "lat": 10.7272054892569, "lng": 122.56710895228002, "type": "police", "phone": "0908-322-8457"},
-    {"name": "ICPO Police Station 10", "lat": 10.70553584277189, "lng": 122.55517513417514, "type": "police", "phone": "0908-308-0940"},
-    {"name": "La Paz Fire Sub-Station", "lat": 10.712651852092284, "lng": 122.57295111469945, "type": "fire", "phone": "(033) 320 6963"},
-    {"name": "Federation Iloilo Fire Station", "lat": 10.698697241164309, "lng": 122.57076622219913, "type": "fire", "phone": "(033) 337 9760"},
-    {"name": "BFP Iloilo", "lat": 10.690705849929284, "lng": 122.58144791800282, "type": "fire", "phone": "500-5026"},
-    {"name": "Bo. Obrero Fire Sub-Station", "lat": 10.702275407727985, "lng": 122.59067301967075, "type": "fire", "phone": "(033) 335 1965"},
-    {"name": "Mandurriao Fire Sub-Station", "lat": 10.719211489646474, "lng": 122.53920666146492, "type": "fire", "phone": "(033) 321 0779"},
-    {"name": "Arevalo Fire Sub-Station", "lat": 10.688797426748417, "lng": 122.51626529021178, "type": "fire", "phone": "(033) 321 1096"},
-    {"name": "Sto. Niño Sur Fire Sub-Station", "lat": 10.68223713089546, "lng": 122.5099533777009, "type": "fire", "phone": "(033) 314 7631"},
-    {"name": "BFP Jaro", "lat": 10.72744065268221, "lng": 122.56251218153137, "type": "fire", "phone": "(033) 500 0217"},
-    {"name": "Ungka Fire Sub-Station", "lat": 10.74690941039231, "lng": 122.53931659330536, "type": "fire", "phone": "(033) 323 5139"},
-    {"name": "Old Molo Fire Station", "lat": 10.697030999439814, "lng": 122.5488881609591, "type": "fire", "phone": "(033) 336 0639"},
-    {"name": "San Isidro Fire Sub-Station", "lat": 10.736444550002995, "lng": 122.5458557423291, "type": "fire", "phone": "(033) 330 1507"},
-    {"name": "Western Visayas Medical Center", "lat": 10.718885489071287, "lng": 122.54193891896666, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "Iloilo Mission Hospital", "lat": 10.714817707214994, "lng": 122.56058274040979, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "St. Paul's Hospital Iloilo", "lat": 10.702011896133618, "lng": 122.56694877109325, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "Iloilo Doctors' Hospital", "lat": 10.696804152759018, "lng": 122.55440768089073, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "The Medical City Iloilo", "lat": 10.699644543003238, "lng": 122.54277137544258, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "WVSU Medical Center", "lat": 10.717168244196454, "lng": 122.56120580362972, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "QualiMed Hospital Iloilo", "lat": 10.706542561402188, "lng": 122.54782241379408, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "Medicus Medical Center", "lat": 10.702756754480117, "lng": 122.55224702393059, "type": "medical", "phone": "0919-066-1554"},
-    {"name": "AMOSUP Seamen's Hospital", "lat": 10.714828158629505, "lng": 122.53455543124073, "type": "medical", "phone": "0919-066-1554"},
+    {"name": "PS1 City Proper", "lat": 10.701501994092405, "lng": 122.56369039944839, "type": "police"},
+    {"name": "PS2 La Paz", "lat": 10.70552222109631, "lng": 122.56549995693831, "type": "police"},
+    {"name": "PS3 Jaro", "lat": 10.71560226623802, "lng": 122.56266469623272, "type": "police"},
+    {"name": "Molo Police Station", "lat": 10.698346304433658, "lng": 122.55105476464729, "type": "police"},
+    {"name": "PS5 Mandurriao", "lat": 10.71683400704982, "lng": 122.53648059623264, "type": "police"},
+    {"name": "Arevalo Police Station", "lat": 10.68890021276814, "lng": 122.51886825833218, "type": "police"},
+    {"name": "PS7 Lapuz", "lat": 10.693878433584727, "lng": 122.55874469935698, "type": "police"},
+    {"name": "Sambag Police Assistant", "lat": 10.742333401995415, "lng": 122.5409438842518, "type": "police"},
+    {"name": "Ungka Police Station", "lat": 10.747512542219782, "lng": 122.54008363707585, "type": "police"},
+    {"name": "ICPO Police Station 9", "lat": 10.7272054892569, "lng": 122.56710895228002, "type": "police"},
+    {"name": "ICPO Police Station 10", "lat": 10.70553584277189, "lng": 122.55517513417514, "type": "police"},
+    {"name": "La Paz Fire Sub-Station", "lat": 10.712651852092284, "lng": 122.57295111469945, "type": "fire"},
+    {"name": "Federation Iloilo Fire Station", "lat": 10.698697241164309, "lng": 122.57076622219913, "type": "fire"},
+    {"name": "BFP Iloilo", "lat": 10.690705849929284, "lng": 122.58144791800282, "type": "fire"},
+    {"name": "Bo. Obrero Fire Sub-Station", "lat": 10.702275407727985, "lng": 122.59067301967075, "type": "fire"},
+    {"name": "Mandurriao Fire Sub-Station", "lat": 10.719211489646474, "lng": 122.53920666146492, "type": "fire"},
+    {"name": "Arevalo Fire Sub-Station", "lat": 10.688797426748417, "lng": 122.51626529021178, "type": "fire"},
+    {"name": "Sto. Niño Sur Fire Sub-Station", "lat": 10.68223713089546, "lng": 122.5099533777009, "type": "fire"},
+    {"name": "BFP Jaro", "lat": 10.72744065268221, "lng": 122.56251218153137, "type": "fire"},
+    {"name": "Ungka Fire Sub-Station", "lat": 10.74690941039231, "lng": 122.53931659330536, "type": "fire"},
+    {"name": "Old Molo Fire Station", "lat": 10.697030999439814, "lng": 122.5488881609591, "type": "fire"},
+    {"name": "San Isidro Fire Sub-Station", "lat": 10.736444550002995, "lng": 122.5458557423291, "type": "fire"},
+    {"name": "Western Visayas Medical Center", "lat": 10.718885489071287, "lng": 122.54193891896666, "type": "medical"},
+    {"name": "Iloilo Mission Hospital", "lat": 10.714817707214994, "lng": 122.56058274040979, "type": "medical"},
+    {"name": "St. Paul's Hospital Iloilo", "lat": 10.702011896133618, "lng": 122.56694877109325, "type": "medical"},
+    {"name": "Iloilo Doctors' Hospital", "lat": 10.696804152759018, "lng": 122.55440768089073, "type": "medical"},
+    {"name": "The Medical City Iloilo", "lat": 10.699644543003238, "lng": 122.54277137544258, "type": "medical"},
+    {"name": "WVSU Medical Center", "lat": 10.717168244196454, "lng": 122.56120580362972, "type": "medical"},
+    {"name": "QualiMed Hospital Iloilo", "lat": 10.706542561402188, "lng": 122.54782241379408, "type": "medical"},
+    {"name": "Medicus Medical Center", "lat": 10.702756754480117, "lng": 122.55224702393059, "type": "medical"},
+    {"name": "AMOSUP Seamen's Hospital", "lat": 10.714828158629505, "lng": 122.53455543124073, "type": "medical"},
   ];
 
   @override
   void initState() {
     super.initState();
-    _initDeviceId();
+    _getDeviceId();
     _getCurrentInitialLocation();
     _startLiveTracking();
     _subscribeToResponders();
     _initPeer();
   }
 
-  Future<void> _initDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? storedId = prefs.getString('device_unique_id');
-    if (storedId == null || storedId.isEmpty) {
-      storedId = const Uuid().v4();
-      await prefs.setString('device_unique_id', storedId);
+  Future<void> _getDeviceId() async {
+    final deviceInfo = DeviceInfoPlugin();
+    try {
+      if (Platform.isAndroid) {
+        final androidInfo = await deviceInfo.androidInfo;
+        _deviceId = androidInfo.id;
+      } else if (Platform.isIOS) {
+        final iosInfo = await deviceInfo.iosInfo;
+        _deviceId = iosInfo.identifierForVendor;
+      }
+    } catch (e) {
+      debugPrint("Error fetching device ID: $e");
     }
-    setState(() {
-      _deviceId = storedId;
-    });
   }
 
   Future<void> _initPeer() async {
@@ -124,11 +130,176 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       call.on<MediaStream>('stream').listen((remoteStream) {
+        _remoteStream = remoteStream;
         _remoteRenderer.srcObject = remoteStream;
       });
 
-      call.on('close').listen((_) => _hangUp(isRemote: true)); // If connection closes remotely
+      call.on('close').listen((_) async {
+        debugPrint('[Caller Call] Media connection closed by remote side');
+        if (!_isEndingCall) {
+          await endCurrentCall(reason: 'media-close', notifyRemote: false);
+        }
+      });
+
+      call.on('error').listen((error) async {
+        debugPrint('[Caller Call] Media connection error: $error');
+        if (!_isEndingCall) {
+          await endCurrentCall(reason: 'media-error', notifyRemote: false);
+        }
+      });
     });
+  }
+
+  Future<void> _subscribeToCurrentAlertStatus() async {
+    final currentAlertId = _currentAlertId;
+    if (currentAlertId == null || currentAlertId.isEmpty) {
+      return;
+    }
+
+    _currentAlertStatusSubscription?.cancel();
+    _currentAlertStatusSubscription = supabase
+        .from('emergency_alerts')
+        .stream(primaryKey: ['id'])
+        .eq('id', currentAlertId)
+        .listen((List<Map<String, dynamic>> rows) async {
+      if (!mounted || _currentAlertId == null) return;
+
+      for (final row in rows) {
+        final updatedId = row['id']?.toString();
+        final status = row['status']?.toString();
+
+        if (updatedId == null || status == null) {
+          continue;
+        }
+
+        if (updatedId.toString() != _currentAlertId.toString()) {
+          continue;
+        }
+
+        if ({'ended', 'cancelled', 'failed', 'completed'}.contains(status.toLowerCase())) {
+          debugPrint('[Caller Call] Remote admin ended: $updatedId');
+          if (!_isEndingCall) {
+            await endCurrentCall(reason: 'admin-ended', notifyRemote: false);
+          }
+        }
+      }
+    }, onError: (Object error, StackTrace stackTrace) {
+      debugPrint('[Caller Call] Alert status subscription error: $error');
+      debugPrint(stackTrace.toString());
+    });
+  }
+
+  Future<void> _broadcastCallEnded({
+    required String callId,
+    required String reason,
+  }) async {
+    try {
+      final channelName = 'call-dispatch';
+      final channel = supabase.channel(channelName);
+      _callEndedChannel = channel;
+      channel.subscribe();
+      await channel.sendBroadcastMessage(
+        event: 'call-ended',
+        payload: {
+          'callId': callId,
+          'from': _myPeerId ?? 'unknown',
+          'reason': reason,
+        },
+      );
+      debugPrint('[Caller Call] Broadcasting call-ended');
+    } catch (error, stackTrace) {
+      debugPrint('[Caller Call] Broadcast error: $error');
+      debugPrint(stackTrace.toString());
+    }
+  }
+
+  Future<void> endCurrentCall({
+    required String reason,
+    bool notifyRemote = true,
+  }) async {
+    final callId = _currentAlertId;
+    if (callId == null || callId.isEmpty) {
+      debugPrint('[Caller Call] No active alert ID to end.');
+      return;
+    }
+
+    if (_isEndingCall) {
+      debugPrint('[Caller Call] Already ending call for $callId; ignoring reason: $reason');
+      return;
+    }
+
+    _isEndingCall = true;
+    debugPrint('[Caller Call] Ending call: $callId');
+    debugPrint('[Caller Call] Reason: $reason');
+    debugPrint('[Caller Call] Active alert ID: $callId');
+
+    try {
+      if (notifyRemote) {
+        debugPrint('[Caller Call] Updating status to ended');
+        final updateResponse = await supabase
+            .from('emergency_alerts')
+            .update({'status': 'ended'})
+            .eq('id', callId);
+        debugPrint('[Caller Call] End status updated: $updateResponse');
+        if (updateResponse == null) {
+          debugPrint('[Caller Call] Supabase update returned null for alert $callId');
+        }
+      }
+
+      if (notifyRemote) {
+        await _broadcastCallEnded(
+          callId: callId,
+          reason: reason,
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint('[Caller Call] End-call update/broadcast error: $error');
+      debugPrint(stackTrace.toString());
+    }
+
+    try {
+      debugPrint('[Caller Call] Closing media connection');
+      _activeCall?.close();
+      _activeCall = null;
+    } catch (error, stackTrace) {
+      debugPrint('[Caller Call] Media close error: $error');
+      debugPrint(stackTrace.toString());
+    }
+
+    try {
+      debugPrint('[Caller Call] Stopping media tracks');
+      for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        track.stop();
+      }
+      for (final track in _remoteStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        track.stop();
+      }
+      _localStream?.dispose();
+      _remoteStream?.dispose();
+    } catch (error, stackTrace) {
+      debugPrint('[Caller Call] Media track cleanup error: $error');
+      debugPrint(stackTrace.toString());
+    }
+
+    _currentAlertStatusSubscription?.cancel();
+    _currentAlertStatusSubscription = null;
+    _callEndedChannel?.unsubscribe();
+    _callEndedChannel = null;
+
+    _localStream = null;
+    _remoteStream = null;
+    _remoteRenderer.srcObject = null;
+
+    if (mounted) {
+      setState(() {
+        _isCalling = false;
+        _isSpeakerOn = false;
+        _isEndingCall = false;
+        _currentAlertId = null;
+      });
+    }
+
+    debugPrint('[Caller Call] Cleanup complete');
   }
 
   Future<void> _toggleSpeaker() async {
@@ -209,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _getResponderIconUI(String type) {
     if (type == 'police') {
-      return const Icon(Icons.emergency, color: Colors.blue, size: 20);
+      return const Icon(Icons.local_police_outlined, color: Colors.blue, size: 20);
     } else if (type == 'fire') {
       return const Icon(Icons.fire_truck, color: Colors.orange, size: 20);
     } else {
@@ -227,7 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _triggerSOS() async {
     if (_isCalling) {
-      _hangUp(); // User manually triggered hangup
+      _hangUp();
       return;
     }
 
@@ -263,95 +434,32 @@ class _HomeScreenState extends State<HomeScreen> {
       }).select().single();
 
       _currentAlertId = response['id'].toString();
+      debugPrint('[Caller Call] Active alert ID: $_currentAlertId');
+      await _subscribeToCurrentAlertStatus();
 
-      // REALTIME LISTENER: Listen for status updates from Admin side
-      await _activeAlertSubscription?.cancel();
-      _activeAlertSubscription = supabase
-          .from('emergency_alerts')
-          .stream(primaryKey: ['id'])
-          .eq('id', int.parse(_currentAlertId!))
-          .listen((List<Map<String, dynamic>> data) {
-        if (data.isNotEmpty) {
-          final alertStatus = data.first['status'];
-          // If admin cancels, resolves, or ends call, hang up user side
-          if (alertStatus == 'cancelled' || alertStatus == 'resolved' || alertStatus == 'ended') {
-            _hangUp(isRemote: true); // Tell the app the admin caused this
-          }
-        }
-      });
-
-    } catch (e) {
-      debugPrint('Call processing error: $e');
-      _hangUp();
+    } catch (e, stackTrace) {
+      debugPrint('[Caller Call] Call processing error: $e');
+      debugPrint(stackTrace.toString());
+      await endCurrentCall(reason: 'call-setup-failed', notifyRemote: false);
     }
   }
 
-  void _hangUp({bool isRemote = false}) async {
-    // 1. Unsubscribe real-time alert stream
-    await _activeAlertSubscription?.cancel();
-    _activeAlertSubscription = null;
-
-    if (_currentAlertId != null) {
-      final alertIdToCancel = _currentAlertId;
-      _currentAlertId = null; // Clear ID to prevent redundant trigger loops
-
-      // ONLY update the database if the user pressed the button.
-      // If the admin hung up, the database is already updated!
-      if (!isRemote) {
-        try {
-          await supabase
-              .from('emergency_alerts')
-              .update({'status': 'cancelled'})
-              .eq('id', alertIdToCancel!);
-        } catch (e) {
-          debugPrint("Error updating alert status: $e");
-        }
-      }
-    }
-
-    // 2. Close WebRTC Peer Call
-    _activeCall?.close();
-    _activeCall = null;
-
-    // 3. Stop and dispose local microphone stream
-    if (_localStream != null) {
-      for (var track in _localStream!.getTracks()) {
-        await track.stop();
-      }
-      await _localStream!.dispose();
-      _localStream = null;
-    }
-
-    // 4. Stop incoming remote audio tracks and dispose remote stream
-    if (_remoteRenderer.srcObject != null) {
-      for (var track in _remoteRenderer.srcObject!.getTracks()) {
-        await track.stop();
-      }
-      await _remoteRenderer.srcObject!.dispose();
-      _remoteRenderer.srcObject = null;
-    }
-
-    // 5. Reset audio speaker routing state
-    if (_isSpeakerOn) {
-      Helper.setSpeakerphoneOn(false);
-    }
-
-    // 6. Reset UI State
-    if (mounted) {
-      setState(() {
-        _isCalling = false;
-        _isSpeakerOn = false;
-      });
-    }
+  Future<void> _hangUp() async {
+    await endCurrentCall(reason: 'local-end', notifyRemote: true);
   }
 
   @override
   void dispose() {
-    _activeAlertSubscription?.cancel();
     _positionStream?.cancel();
     _responderSubscription?.cancel();
+    _currentAlertStatusSubscription?.cancel();
+    _callEndedChannel?.unsubscribe();
     _mapController?.dispose();
-    _hangUp();
+    _activeCall?.close();
+    _localStream?.getTracks().forEach((track) => track.stop());
+    _remoteStream?.getTracks().forEach((track) => track.stop());
+    _localStream?.dispose();
+    _remoteStream?.dispose();
     _peer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
@@ -375,10 +483,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 markerId: MarkerId(data['name']),
                 position: LatLng(data['lat'], data['lng']),
                 icon: _getMarkerHue(data['type']),
-                infoWindow: InfoWindow(
-                  title: data['name'],
-                  snippet: "📞 ${data['phone']} (${data['type'].toUpperCase()})",
-                ),
+                infoWindow: InfoWindow(title: data['name'], snippet: data['type'].toUpperCase()),
               )),
               ..._liveResponders.values,
             },
