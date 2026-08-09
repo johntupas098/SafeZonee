@@ -22,6 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   LatLng _currentLocation = const LatLng(10.7202, 122.5621);
   StreamSubscription<Position>? _positionStream;
   StreamSubscription? _responderSubscription;
+  StreamSubscription? _activeAlertSubscription; // Listens for admin status updates
 
   Map<MarkerId, Marker> _liveResponders = {};
 
@@ -126,7 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _remoteRenderer.srcObject = remoteStream;
       });
 
-      call.on('close').listen((_) => _hangUp());
+      call.on('close').listen((_) => _hangUp(isRemote: true)); // If connection closes remotely
     });
   }
 
@@ -226,7 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _triggerSOS() async {
     if (_isCalling) {
-      _hangUp();
+      _hangUp(); // User manually triggered hangup
       return;
     }
 
@@ -263,21 +264,48 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _currentAlertId = response['id'].toString();
 
+      // REALTIME LISTENER: Listen for status updates from Admin side
+      await _activeAlertSubscription?.cancel();
+      _activeAlertSubscription = supabase
+          .from('emergency_alerts')
+          .stream(primaryKey: ['id'])
+          .eq('id', int.parse(_currentAlertId!))
+          .listen((List<Map<String, dynamic>> data) {
+        if (data.isNotEmpty) {
+          final alertStatus = data.first['status'];
+          // If admin cancels, resolves, or ends call, hang up user side
+          if (alertStatus == 'cancelled' || alertStatus == 'resolved' || alertStatus == 'ended') {
+            _hangUp(isRemote: true); // Tell the app the admin caused this
+          }
+        }
+      });
+
     } catch (e) {
       debugPrint('Call processing error: $e');
       _hangUp();
     }
   }
 
-  void _hangUp() async {
+  void _hangUp({bool isRemote = false}) async {
+    // Unsubscribe real-time alert stream
+    await _activeAlertSubscription?.cancel();
+    _activeAlertSubscription = null;
+
     if (_currentAlertId != null) {
-      try {
-        await supabase
-            .from('emergency_alerts')
-            .update({'status': 'cancelled'})
-            .eq('id', _currentAlertId!);
-      } catch (e) {
-        debugPrint("Error updating alert status: $e");
+      final alertIdToCancel = _currentAlertId;
+      _currentAlertId = null; // Clear ID to prevent redundant trigger loops
+
+      // ONLY update the database if the user pressed the button.
+      // If the admin hung up, the database is already updated!
+      if (!isRemote) {
+        try {
+          await supabase
+              .from('emergency_alerts')
+              .update({'status': 'cancelled'})
+              .eq('id', alertIdToCancel!);
+        } catch (e) {
+          debugPrint("Error updating alert status: $e");
+        }
       }
     }
 
@@ -292,13 +320,13 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isCalling = false;
         _isSpeakerOn = false;
-        _currentAlertId = null;
       });
     }
   }
 
   @override
   void dispose() {
+    _activeAlertSubscription?.cancel();
     _positionStream?.cancel();
     _responderSubscription?.cancel();
     _mapController?.dispose();
