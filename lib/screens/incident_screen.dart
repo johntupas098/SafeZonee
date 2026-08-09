@@ -24,9 +24,9 @@ class _IncidentScreenState extends State<IncidentScreen> {
   final supabase = Supabase.instance.client;
 
   final List<Map<String, dynamic>> categories = [
-    {'name': 'Police', 'icon': Icons.emergency, 'color': Colors.blue},
-    {'name': 'Fire', 'icon': Icons.sports_motorsports, 'color': Colors.orange},
-    {'name': 'Medic', 'icon': Icons.local_hospital, 'color': Colors.red},
+    {'name': 'Police', 'icon': Icons.local_police_outlined, 'color': Colors.blue},
+    {'name': 'Fire', 'icon': Icons.fire_truck, 'color': Colors.orange},
+    {'name': 'Medical', 'icon': Icons.local_hospital, 'color': Colors.red},
   ];
 
   Future<String?> _getDeviceId() async {
