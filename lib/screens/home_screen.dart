@@ -287,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _hangUp({bool isRemote = false}) async {
-    // Unsubscribe real-time alert stream
+    // 1. Unsubscribe real-time alert stream
     await _activeAlertSubscription?.cancel();
     _activeAlertSubscription = null;
 
@@ -309,13 +309,34 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // 2. Close WebRTC Peer Call
     _activeCall?.close();
     _activeCall = null;
-    _localStream?.getTracks().forEach((track) => track.stop());
-    _localStream?.dispose();
-    _localStream = null;
-    _remoteRenderer.srcObject = null;
 
+    // 3. Stop and dispose local microphone stream
+    if (_localStream != null) {
+      for (var track in _localStream!.getTracks()) {
+        await track.stop();
+      }
+      await _localStream!.dispose();
+      _localStream = null;
+    }
+
+    // 4. Stop incoming remote audio tracks and dispose remote stream
+    if (_remoteRenderer.srcObject != null) {
+      for (var track in _remoteRenderer.srcObject!.getTracks()) {
+        await track.stop();
+      }
+      await _remoteRenderer.srcObject!.dispose();
+      _remoteRenderer.srcObject = null;
+    }
+
+    // 5. Reset audio speaker routing state
+    if (_isSpeakerOn) {
+      Helper.setSpeakerphoneOn(false);
+    }
+
+    // 6. Reset UI State
     if (mounted) {
       setState(() {
         _isCalling = false;
