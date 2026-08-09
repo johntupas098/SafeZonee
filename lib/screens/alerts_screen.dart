@@ -24,12 +24,12 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   IconData _getLocalIcon(String category) {
     switch (category.toLowerCase()) {
-      case 'fire':
-        return Icons.local_fire_department;
-      case 'medic':
+      case 'Fire':
+        return Icons.fire_truck;
+      case 'Medical':
         return Icons.local_hospital;
-      case 'police':
-        return Icons.local_police;
+      case 'Police':
+        return Icons.local_police_outlined;
       default:
         return Icons.warning;
     }
