@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -27,6 +29,10 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription? _responderSubscription;
 
   final Map<MarkerId, Marker> _liveResponders = {};
+
+  BitmapDescriptor? _policeIcon;
+  BitmapDescriptor? _fireIcon;
+  BitmapDescriptor? _medicalIcon;
 
   static const String _meteredApiKey =
       'pk_live_ffa91f88e27d9d705f400f3a9f29eeba2380691f';
@@ -93,11 +99,54 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCustomMarkers();
     _getCurrentInitialLocation();
     _startLiveTracking();
     _subscribeToResponders();
     unawaited(_remoteRenderer.initialize());
-    unawaited(_cleanupStaleCalls()); // Fix: Cleans up ghost calls instead of resuming them
+    unawaited(_cleanupStaleCalls());
+  }
+
+  Future<void> _loadCustomMarkers() async {
+    _policeIcon = await _getBitmapDescriptorFromIconData(Icons.local_police_outlined, Colors.blue);
+    _fireIcon = await _getBitmapDescriptorFromIconData(Icons.fire_truck, Colors.orange);
+    _medicalIcon = await _getBitmapDescriptorFromIconData(Icons.local_hospital, Colors.red);
+    if (mounted) setState(() {});
+  }
+
+  Future<BitmapDescriptor> _getBitmapDescriptorFromIconData(IconData iconData, Color color) async {
+    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(pictureRecorder);
+    const size = 120.0;
+
+    final Paint paint = Paint()..color = Colors.white;
+    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2, paint);
+
+    final Paint borderPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8.0;
+    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 4, borderPaint);
+
+    final TextPainter textPainter = TextPainter(textDirection: TextDirection.ltr);
+    textPainter.text = TextSpan(
+      text: String.fromCharCode(iconData.codePoint),
+      style: TextStyle(
+        fontSize: 60.0,
+        fontFamily: iconData.fontFamily,
+        package: iconData.fontPackage,
+        color: color,
+      ),
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
+    );
+
+    final ui.Image image = await pictureRecorder.endRecording().toImage(size.toInt(), size.toInt());
+    final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.fromBytes(byteData!.buffer.asUint8List());
   }
 
   Future<String> _getDeviceId() async {
@@ -119,13 +168,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return 'unknown-device';
   }
 
-  // FIX: This entirely replaces the old _recoverActiveAlert logic
   Future<void> _cleanupStaleCalls() async {
     try {
       final deviceId = await _getDeviceId();
       if (deviceId == 'unknown-device') return;
 
-      // Close any calls tied to this device ID that are still hanging open in Supabase
       await supabase
           .from('emergency_alerts')
           .update({'status': 'ended'})
@@ -597,14 +644,14 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  BitmapDescriptor _getMarkerHue(String type) {
+  BitmapDescriptor _getMarkerIcon(String type) {
     if (type == 'police') {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+      return _policeIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
     }
     if (type == 'fire') {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      return _fireIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
     }
-    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+    return _medicalIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
   }
 
   Widget _getResponderIconUI(String type) {
@@ -720,7 +767,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ...staticResponders.map((data) => Marker(
                 markerId: MarkerId(data['name']),
                 position: LatLng(data['lat'], data['lng']),
-                icon: _getMarkerHue(data['type']),
+                icon: _getMarkerIcon(data['type']),
                 infoWindow: InfoWindow(
                   title: data['name'],
                   snippet:
@@ -886,11 +933,14 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.phone_in_talk, color: Colors.white, size: 26),
-              Text("SOS",
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14)),
+              Text(
+                "SOS",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
             ],
           ),
         ),

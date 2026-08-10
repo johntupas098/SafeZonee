@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class AlertsScreen extends StatefulWidget {
   @override
@@ -8,6 +9,49 @@ class AlertsScreen extends StatefulWidget {
 
 class _AlertsScreenState extends State<AlertsScreen> {
   final _supabase = Supabase.instance.client;
+  late FlutterLocalNotificationsPlugin _localNotificationsPlugin;
+
+  final Set<String> _processedIncidentIds = {};
+  bool _isInitialLoad = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initNotifications();
+  }
+
+  void _initNotifications() async {
+    _localNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosSettings = DarwinInitializationSettings();
+
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+
+    await _localNotificationsPlugin.initialize(initSettings);
+  }
+
+  Future<void> _showLocalNotification(String title, String body) async {
+    const androidDetails = AndroidNotificationDetails(
+      'safety_alerts_channel',
+      'Safety Alerts',
+      channelDescription: 'Real-time safety hazard alerts',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+    const iosDetails = DarwinNotificationDetails();
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+    await _localNotificationsPlugin.show(
+      DateTime.now().millisecond,
+      title,
+      body,
+      details,
+    );
+  }
 
   Color _getAlertColor(String category) {
     switch (category.toLowerCase()) {
@@ -62,6 +106,26 @@ class _AlertsScreenState extends State<AlertsScreen> {
           final incidents = snapshot.data!
               .where((incident) => (incident['status'] as String? ?? '').toLowerCase() != 'cancelled')
               .toList();
+
+          if (_isInitialLoad) {
+            for (var inc in incidents) {
+              if (inc['id'] != null) {
+                _processedIncidentIds.add(inc['id'].toString());
+              }
+            }
+            _isInitialLoad = false;
+          } else {
+            for (var inc in incidents) {
+              final id = inc['id']?.toString() ?? '';
+              if (id.isNotEmpty && !_processedIncidentIds.contains(id)) {
+                _processedIncidentIds.add(id);
+                final category = inc['category'] as String? ?? 'Safety Hazard';
+                final description = inc['description'] as String? ?? 'New incident reported.';
+
+                _showLocalNotification("New $category Alert!", description);
+              }
+            }
+          }
 
           return Column(
             children: [
