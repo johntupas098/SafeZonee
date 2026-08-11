@@ -761,7 +761,7 @@ class _HomeScreenState extends State<HomeScreen> {
             myLocationEnabled: true,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
-            padding: const EdgeInsets.only(top: 100, bottom: 140),
+            padding: const EdgeInsets.only(top: 100, bottom: 90),
             onMapCreated: (controller) => _mapController = controller,
             markers: {
               ...staticResponders.map((data) => Marker(
@@ -845,7 +845,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Positioned(
             right: 15,
-            bottom: 110,
+            bottom: 100,
             child: Column(
               children: [
                 if (_isCalling) ...[
@@ -907,13 +907,37 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              IconButton(
-                  icon: const Icon(Icons.assignment_outlined),
-                  onPressed: () => Navigator.pushNamed(context, '/report')),
+              InkWell(
+                onTap: () => Navigator.pushNamed(context, '/report'),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.assignment_outlined, size: 24),
+                      SizedBox(height: 2),
+                      Text("Report", style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(width: 50),
-              IconButton(
-                  icon: const Icon(Icons.notifications_active_outlined),
-                  onPressed: () => Navigator.pushNamed(context, '/alerts')),
+              InkWell(
+                onTap: () => Navigator.pushNamed(context, '/alerts'),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.notifications_active_outlined, size: 24),
+                      SizedBox(height: 2),
+                      Text("Alerts", style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),

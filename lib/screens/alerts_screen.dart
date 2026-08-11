@@ -103,9 +103,10 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-          final incidents = snapshot.data!
-              .where((incident) => (incident['status'] as String? ?? '').toLowerCase() != 'cancelled')
-              .toList();
+          final incidents = snapshot.data!.where((incident) {
+            final status = (incident['status'] as String? ?? '').toLowerCase();
+            return status != 'cancelled' && status != 'resolved';
+          }).toList();
 
           if (_isInitialLoad) {
             for (var inc in incidents) {
